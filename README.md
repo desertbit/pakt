@@ -7,6 +7,10 @@ It handles any I/O connection which implements the golang net.Conn interface.
 
 "Pakt" is the German word for pact (deal). Server and client make a pact and start communicating.
 
+## Documentation
+
+See the documentation at [GoDoc](https://godoc.org/github.com/desertbit/pakt).
+
 ## Sample
 
 Check the sample directory for a simple [server](sample/server) and [client](sample/client) example.
