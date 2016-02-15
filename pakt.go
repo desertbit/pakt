@@ -83,8 +83,9 @@ type Socket struct {
 	onCloseFunc        func()
 	onClosePrivateFunc func()
 
-	funcMap   map[string]Func
-	funcChain *chain
+	funcMap      map[string]Func
+	funcMapMutex sync.Mutex
+	funcChain    *chain
 }
 
 // NewSocket creates a new PAKT socket using the passed connection.
@@ -191,18 +192,26 @@ func (s *Socket) Close() {
 }
 
 // RegisterFunc registers a remote function.
-// This method is not thread-safe and should be only invoked before calling Ready().
+// This method is thread-safe.
 func (s *Socket) RegisterFunc(id string, f Func) {
+	// Lock the mutex.
+	s.funcMapMutex.Lock()
+	defer s.funcMapMutex.Unlock()
+
 	// Set the function to the map.
 	s.funcMap[id] = f
 }
 
 // RegisterFuncs registers a map of remote functions.
-// This method is not thread-safe and should be only invoked before calling Ready().
+// This method is thread-safe.
 func (s *Socket) RegisterFuncs(funcs Funcs) {
+	// Lock the mutex.
+	s.funcMapMutex.Lock()
+	defer s.funcMapMutex.Unlock()
+
 	// Iterate through the map and register the functions.
 	for id, f := range funcs {
-		s.RegisterFunc(id, f)
+		s.funcMap[id] = f
 	}
 }
 
@@ -238,9 +247,11 @@ func (s *Socket) Call(id string, args ...interface{}) (*Context, error) {
 	timeoutDuration := s.callTimeout
 	if len(args) >= 2 {
 		d, ok := args[1].(time.Duration)
-		if ok {
-			timeoutDuration = d
+		if !ok {
+			return nil, fmt.Errorf("failed to assert optional variadic call timeout to a time.Duration value")
 		}
+
+		timeoutDuration = d
 	}
 
 	// Create the timeout.
@@ -541,7 +552,14 @@ func (s *Socket) handleReceivedData(rawData []byte) (err error) {
 
 	case headerTypeCall:
 		// Obtain the function defined by the ID.
-		f, ok := s.funcMap[headerD.FuncID]
+		f, ok := func() (Func, bool) {
+			// Lock the mutex.
+			s.funcMapMutex.Lock()
+			defer s.funcMapMutex.Unlock()
+
+			f, ok := s.funcMap[headerD.FuncID]
+			return f, ok
+		}()
 		if !ok {
 			return fmt.Errorf("call request: requested function does not exists: id=%v", headerD.FuncID)
 		}
