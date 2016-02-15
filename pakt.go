@@ -38,7 +38,7 @@ import (
 const (
 	defaultMaxMessageSize = 4090
 
-	defaultCallTimeout = time.Minute
+	defaultCallTimeout = 30 * time.Second
 
 	socketTimeout = 45 * time.Second
 	pingInterval  = 30 * time.Second
@@ -213,9 +213,10 @@ func (s *Socket) SetCallTimeout(t time.Duration) {
 
 // Call a remote function and wait for its result.
 // This method blocks until the remote socket function returns.
-// Pass an optional data value.
+// The first variadic argument specifies an optional data value [interface{}].
+// The second variadic argument specifies an optional call timeout [time.Duration].
 // Returns ErrTimeout on a timeout.
-func (s *Socket) Call(id string, dataArg ...interface{}) (*Context, error) {
+func (s *Socket) Call(id string, args ...interface{}) (*Context, error) {
 	// Create a new channel with its key.
 	key, channel := s.funcChain.New()
 	defer s.funcChain.Delete(key)
@@ -228,13 +229,22 @@ func (s *Socket) Call(id string, dataArg ...interface{}) (*Context, error) {
 	}
 
 	// Write to the client.
-	err := s.write(header, dataArg...)
+	err := s.write(header, args...)
 	if err != nil {
 		return nil, err
 	}
 
+	// Get the timeout duration. If no timeout is passed, use the default.
+	timeoutDuration := s.callTimeout
+	if len(args) >= 2 {
+		d, ok := args[1].(time.Duration)
+		if ok {
+			timeoutDuration = d
+		}
+	}
+
 	// Create the timeout.
-	timeout := time.NewTimer(s.callTimeout)
+	timeout := time.NewTimer(timeoutDuration)
 	defer timeout.Stop()
 
 	// Wait for a response.

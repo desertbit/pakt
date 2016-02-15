@@ -278,6 +278,9 @@ func TestSocketTimeout(t *testing.T) {
 		_, err := s.Call("timeout")
 		must(err == pakt.ErrTimeout, err)
 
+		_, err = s.Call("timeout", nil, 5*time.Second)
+		must(err == nil, err)
+
 		wg.Done()
 	})
 
