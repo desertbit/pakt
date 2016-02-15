@@ -2,6 +2,7 @@
 
 PAKT provides access to exported methods across a network or other I/O connections similar to RPC.
 It handles any I/O connection which implements the golang **net.Conn interface**.
+This library handles synchronization, heartbeat, encoding/decoding using MessagePack and ensures thread-safety.
 
 ## Project Name
 
