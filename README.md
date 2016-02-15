@@ -1,7 +1,7 @@
 # PAKT - Interlink Remote Applications
 
 PAKT provides access to exported methods across a network or other I/O connections similar to RPC.
-It handles any I/O connection which implements the golang net.Conn interface.
+It handles any I/O connection which implements the golang **net.Conn interface**.
 
 ## Project Name
 
@@ -16,6 +16,12 @@ See the documentation at [GoDoc](https://godoc.org/github.com/desertbit/pakt).
 Check the sample directory for a simple [server](sample/server) and [client](sample/client) example.
 
 ## Introduction
+
+Create a PAKT socket:
+```go
+// Create a socket by passing a net.Conn interface.
+s := pakt.NewSocket(conn)
+```
 
 Register a function callable from remote peers:
 ```go
@@ -39,7 +45,7 @@ func foo(c *pakt.Context) (interface{}, error) {
 }
 ```
 
-Call the remote function from a remote peer.
+Call the remote function from a remote peer:
 ```go
 c, err := s.Call("foo", data)
 if err != nil {
