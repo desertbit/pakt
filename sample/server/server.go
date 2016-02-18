@@ -88,11 +88,7 @@ func foo(c *pakt.Context) (interface{}, error) {
 	data := struct {
 		A, B string
 		C    int
-	}{
-		A: "Hallo",
-		B: "Welt",
-		C: 2408234082374023,
-	}
+	}{}
 
 	// Decode the received data from the peer to the dummy value.
 	err := c.Decode(&data)
