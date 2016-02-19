@@ -19,9 +19,11 @@
 package pakt_test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/desertbit/pakt"
 	"github.com/desertbit/pakt/tcp"
 	"github.com/stretchr/testify/require"
 )
@@ -46,4 +48,66 @@ func TestServerClose(t *testing.T) {
 	}()
 
 	server.Listen()
+}
+
+func TestServerSocketsMap(t *testing.T) {
+	var wg sync.WaitGroup
+
+	server, err := tcp.NewServer("127.0.0.1:45356")
+	require.NoError(t, err)
+	require.NotNil(t, server)
+
+	must := func(ok bool, args ...interface{}) {
+		if ok {
+			return
+		}
+
+		wg.Done()
+		t.Fatal(args...)
+	}
+
+	server.OnNewSocket(func(s *pakt.Socket) {
+		s.SetCallTimeout(2 * time.Second)
+
+		s.OnClose(func() {
+			wg.Done()
+		})
+
+		s.Ready()
+
+		_, err := s.Call("exit")
+		must(err == nil, err)
+	})
+
+	go func() {
+		server.Listen()
+	}()
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+
+		go func() {
+			cl, err := tcp.NewClient("127.0.0.1:45356")
+			must(err == nil, "client")
+			must(cl != nil, "client")
+
+			cl.RegisterFunc("exit", func(c *pakt.Context) (interface{}, error) {
+				go func() {
+					time.Sleep(500 * time.Millisecond)
+					c.Socket().Close()
+				}()
+				return nil, nil
+			})
+
+			cl.Ready()
+		}()
+	}
+
+	wg.Wait()
+
+	time.Sleep(time.Second)
+
+	require.Len(t, server.Sockets(), 0)
+
+	server.Close()
 }

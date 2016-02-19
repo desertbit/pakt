@@ -144,6 +144,7 @@ func TestServerMultipleSockets(t *testing.T) {
 	wg.Wait()
 
 	server.Close()
+	time.Sleep(time.Second)
 	require.Len(t, server.Sockets(), 0)
 }
 

@@ -211,14 +211,17 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}()
 
 	// Remove the socket from the active sockets map on close.
-	socket.onClosePrivateFunc = func() {
+	go func() {
+		// Wait for the socket to close.
+		<-socket.closeChan
+
 		// Lock the mutex.
 		s.socketsMutex.Lock()
 		defer s.socketsMutex.Unlock()
 
 		// Remove the socket from the map.
 		delete(s.sockets, socket.id)
-	}
+	}()
 
 	// Call the function if defined.
 	if s.onNewSocket != nil {

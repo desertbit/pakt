@@ -77,11 +77,10 @@ type Socket struct {
 	resetTimeoutChan     chan struct{}
 	resetPingTimeoutChan chan struct{}
 
-	closeMutex         sync.Mutex
-	isClosed           bool
-	closeChan          chan struct{}
-	onCloseFunc        func()
-	onClosePrivateFunc func()
+	closeMutex  sync.Mutex
+	isClosed    bool
+	closeChan   chan struct{}
+	onCloseFunc func()
 
 	funcMap      map[string]Func
 	funcMapMutex sync.Mutex
@@ -177,12 +176,6 @@ func (s *Socket) Close() {
 	err := s.conn.Close()
 	if err != nil {
 		Log.Warningf("socket: failed to close socket: %v", err)
-	}
-
-	// Call the private on close function if defined.
-	// This is used by the server.
-	if s.onClosePrivateFunc != nil {
-		s.onClosePrivateFunc()
 	}
 
 	// Call the on close function if defined.
