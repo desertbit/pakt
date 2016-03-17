@@ -62,6 +62,8 @@ var (
 type Func func(c *Context) (data interface{}, err error)
 type Funcs map[string]Func
 
+type ErrorHook func(funcID string, err error)
+
 type ClosedChan <-chan struct{}
 
 type Socket struct {
@@ -85,6 +87,8 @@ type Socket struct {
 	funcMap      map[string]Func
 	funcMapMutex sync.Mutex
 	funcChain    *chain
+
+	errorHook ErrorHook
 }
 
 // NewSocket creates a new PAKT socket using the passed connection.
@@ -139,6 +143,13 @@ func (s *Socket) RemoteAddr() net.Addr {
 // SetMaxMessageSize sets the maximum message size in bytes.
 func (s *Socket) SetMaxMessageSize(size int) {
 	s.maxMessageSize = size
+}
+
+// SetErrorHook sets the error hook function which is triggered, if a local
+// remote callable function returns an error. This hook can be used for logging purpose.
+// Only set this hook during initialization. This method is not thread-safe.
+func (s *Socket) SetErrorHook(h ErrorHook) {
+	s.errorHook = h
 }
 
 // IsClosed returns a boolean indicating if the socket connection is closed.
@@ -580,6 +591,11 @@ func (s *Socket) handleReceivedData(rawData []byte) (err error) {
 		err = s.write(headerD, retData)
 		if err != nil {
 			return fmt.Errorf("call request: send return data: %v", err)
+		}
+
+		// Call the error hook if defined.
+		if s.errorHook != nil {
+			s.errorHook(headerD.FuncID, retErr)
 		}
 
 	default:
