@@ -581,20 +581,20 @@ func (s *Socket) handleReceivedData(rawData []byte) (err error) {
 		}
 
 		// Create the header.
-		headerD = &header{
+		responseHeaderD := &header{
 			Type:      headerTypeReturn,
 			ReturnKey: headerD.ReturnKey,
 			ReturnErr: retErrString,
 		}
 
 		// Write to the client.
-		err = s.write(headerD, retData)
+		err = s.write(responseHeaderD, retData)
 		if err != nil {
 			return fmt.Errorf("call request: send return data: %v", err)
 		}
 
 		// Call the error hook if defined.
-		if s.errorHook != nil {
+		if retErr != nil && s.errorHook != nil {
 			s.errorHook(headerD.FuncID, retErr)
 		}
 
