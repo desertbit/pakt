@@ -16,8 +16,9 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-// PAKT provides access to exported methods across a network or other I/O connections similar to RPC.
-// It handles any I/O connection which implements the golang net.Conn interface.
+// Package pakt provides access to exported methods across a network or
+// other I/O connections similar to RPC. It handles any I/O connection
+// which implements the golang net.Conn interface.
 package pakt
 
 import (
@@ -162,7 +163,7 @@ func (s *Socket) OnClose(f func()) {
 	s.onCloseFunc = f
 }
 
-// Returns a channel which is closed as soon as the socket is closed.
+// ClosedChan returns a channel which is closed as soon as the socket is closed.
 func (s *Socket) ClosedChan() ClosedChan {
 	return s.closeChan
 }
@@ -404,6 +405,7 @@ func (s *Socket) readLoop() {
 
 	var err error
 
+	var n int
 	var totalBytesRead uint32
 	var totalDataBytesRead int
 	var dataSize uint32
@@ -416,7 +418,7 @@ func (s *Socket) readLoop() {
 		// Read the data size from the stream.
 		for totalDataBytesRead < 4 {
 			// Read from the socket.
-			n, err := s.read(dataSizeBuf[totalDataBytesRead:])
+			n, err = s.read(dataSizeBuf[totalDataBytesRead:])
 			if err != nil {
 				// Log if not EOF and if not closed.
 				if err != io.EOF && !s.isClosed {
@@ -454,7 +456,7 @@ func (s *Socket) readLoop() {
 		// Read the data from the stream.
 		for totalBytesRead < dataSize {
 			// Read from the socket.
-			n, err := s.read(buf[totalBytesRead:])
+			n, err = s.read(buf[totalBytesRead:])
 			if err != nil {
 				// Log if not EOF and if not closed.
 				if err != io.EOF && !s.isClosed {
@@ -469,7 +471,7 @@ func (s *Socket) readLoop() {
 
 		// Handle the received data bytes in a new goroutine.
 		go func() {
-			if err = s.handleReceivedData(buf); err != nil {
+			if err := s.handleReceivedData(buf); err != nil {
 				Log.Warningf("socket: handle received data: %v", err)
 			}
 		}()

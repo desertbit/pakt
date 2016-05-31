@@ -29,13 +29,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type data struct {
-	A string
-	B string
-	C int
-}
-
 func TestServerMultipleSockets(t *testing.T) {
+	type data struct {
+		A string
+		B string
+		C int
+	}
+
 	var wg sync.WaitGroup
 
 	server, err := tcp.NewServer("127.0.0.1:45354")
@@ -58,7 +58,7 @@ func TestServerMultipleSockets(t *testing.T) {
 
 		s.RegisterFunc("greet", func(c *pakt.Context) (interface{}, error) {
 			var s string
-			err = c.Decode(&s)
+			err := c.Decode(&s)
 			must(err == nil, "greet")
 			must(s == "Greet", "greet")
 			return "Roger", nil
@@ -149,6 +149,12 @@ func TestServerMultipleSockets(t *testing.T) {
 }
 
 func TestSocketMultipleRoutines(t *testing.T) {
+	type data struct {
+		A string
+		B string
+		C int
+	}
+
 	var wg sync.WaitGroup
 
 	server, err := tcp.NewServer("127.0.0.1:45356")
@@ -171,7 +177,7 @@ func TestSocketMultipleRoutines(t *testing.T) {
 
 		s.RegisterFunc("greet", func(c *pakt.Context) (interface{}, error) {
 			var s string
-			err = c.Decode(&s)
+			err := c.Decode(&s)
 			must(err == nil, "greet")
 			must(s == "Greet", "greet")
 			return "Roger", nil
@@ -192,11 +198,12 @@ func TestSocketMultipleRoutines(t *testing.T) {
 				c, err := s.Call("call", d)
 				must(err == nil, "call request: ", err)
 
-				err = c.Decode(&d)
+				var dd data
+				err = c.Decode(&dd)
 				must(err == nil, "call request: decode")
-				must(d.A == "Hallo", "call request: decode")
-				must(d.B == "Welt", "call request: decode")
-				must(d.C == 2408234082374023, "call request: decode")
+				must(dd.A == "Hallo", "call request: decode")
+				must(dd.B == "Welt", "call request: decode")
+				must(dd.C == 2408234082374023, "call request: decode")
 
 				wg.Done()
 			}()
@@ -231,13 +238,14 @@ func TestSocketMultipleRoutines(t *testing.T) {
 
 		c.Ready()
 
-		var s string
 		for i := 0; i < 10000; i++ {
 			wg.Add(1)
 
 			go func() {
 				cc, err := c.Call("greet", "Greet")
 				must(err == nil, "client: call greet: ", err)
+
+				var s string
 				err = cc.Decode(&s)
 				must(err == nil, "client: call greet")
 				must(s == "Roger", "client: call greet")
