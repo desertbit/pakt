@@ -34,14 +34,16 @@ var (
 
 // A Context defines a function context.
 type Context struct {
+	// Data is the raw byte representation of the encoded context data.
+	Data []byte
+
 	socket *Socket
-	data   []byte
 }
 
 func newContext(s *Socket, data []byte) *Context {
 	return &Context{
 		socket: s,
-		data:   data,
+		Data:   data,
 	}
 }
 
@@ -55,12 +57,12 @@ func (c *Context) Socket() *Socket {
 // Returns ErrNoContextData if there is no context data available to decode.
 func (c *Context) Decode(v interface{}) error {
 	// Check if no data was passed.
-	if len(c.data) == 0 {
+	if len(c.Data) == 0 {
 		return ErrNoContextData
 	}
 
 	// Decode the data.
-	err := c.socket.codec.Decode(c.data, v)
+	err := c.socket.Codec.Decode(c.Data, v)
 	if err != nil {
 		return fmt.Errorf("decode: %v", err)
 	}

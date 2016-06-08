@@ -101,9 +101,11 @@ type Socket struct {
 	// Value is a custom value which can be set.
 	Value interface{}
 
+	// Codec holds the encoding and decoding interface.
+	Codec codec.Codec
+
 	id             string
 	conn           net.Conn
-	codec          codec.Codec
 	writeMutex     sync.Mutex
 	callTimeout    time.Duration
 	maxMessageSize int
@@ -129,8 +131,8 @@ type Socket struct {
 func NewSocket(conn net.Conn, vars ...string) *Socket {
 	// Create a new socket.
 	s := &Socket{
+		Codec:                msgpack.Codec,
 		conn:                 conn,
-		codec:                msgpack.Codec,
 		callTimeout:          DefaultCallTimeout,
 		maxMessageSize:       DefaultMaxMessageSize,
 		resetTimeoutChan:     make(chan struct{}, 1),
@@ -176,12 +178,6 @@ func (s *Socket) RemoteAddr() net.Addr {
 // SetMaxMessageSize sets the maximum message size in bytes.
 func (s *Socket) SetMaxMessageSize(size int) {
 	s.maxMessageSize = size
-}
-
-// SetCodec sets the encoding and decoding codec.
-// Only set this before calling Ready().
-func (s *Socket) SetCodec(c codec.Codec) {
-	s.codec = c
 }
 
 // SetErrorHook sets the error hook function which is triggered, if a local
@@ -348,7 +344,7 @@ func (s *Socket) write(reqType byte, headerI interface{}, dataI interface{}) (er
 
 	// Marshal the payload data if present.
 	if dataI != nil {
-		payload, err = s.codec.Encode(dataI)
+		payload, err = s.Codec.Encode(dataI)
 		if err != nil {
 			return fmt.Errorf("encode: %v", err)
 		}
@@ -367,7 +363,7 @@ func (s *Socket) write(reqType byte, headerI interface{}, dataI interface{}) (er
 
 	// Marshal the header data if present.
 	if headerI != nil {
-		header, err = s.codec.Encode(headerI)
+		header, err = s.Codec.Encode(headerI)
 		if err != nil {
 			return fmt.Errorf("encode header: %v", err)
 		}
@@ -624,7 +620,7 @@ func (s *Socket) handleReceivedMessage(reqType byte, headerBuf, payloadBuf []byt
 func (s *Socket) handleCallRequest(headerBuf, payloadBuf []byte) (err error) {
 	// Decode the header.
 	var header headerCall
-	err = s.codec.Decode(headerBuf, &header)
+	err = s.Codec.Decode(headerBuf, &header)
 	if err != nil {
 		return fmt.Errorf("decode call header: %v", err)
 	}
@@ -677,7 +673,7 @@ func (s *Socket) handleCallRequest(headerBuf, payloadBuf []byte) (err error) {
 func (s *Socket) handleCallReturnRequest(headerBuf, payloadBuf []byte) (err error) {
 	// Decode the header.
 	var header headerCallReturn
-	err = s.codec.Decode(headerBuf, &header)
+	err = s.Codec.Decode(headerBuf, &header)
 	if err != nil {
 		return fmt.Errorf("decode call return header: %v", err)
 	}
