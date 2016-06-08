@@ -32,6 +32,7 @@ const (
 )
 
 var (
+	// Log is the public logrus value used internally.
 	Log *logrus.Logger
 
 	endian binary.ByteOrder = binary.BigEndian

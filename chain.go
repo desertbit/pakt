@@ -100,8 +100,5 @@ func (c *chain) Delete(id string) {
 		case <-channel:
 		default:
 		}
-
-		// Close it.
-		close(channel)
 	}
 }

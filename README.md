@@ -1,8 +1,11 @@
 # PAKT - Interlink Remote Applications
 
+[![GoDoc](https://godoc.org/github.com/desertbit/pakt?status.svg)](https://godoc.org/github.com/desertbit/pakt)
+[![Go Report Card](https://goreportcard.com/badge/github.com/desertbit/pakt)](https://goreportcard.com/report/github.com/desertbit/pakt)
+
 PAKT provides access to exported methods across a network or other I/O connections similar to RPC.
 It handles any I/O connection which implements the golang **net.Conn interface**.
-This library handles synchronization, heartbeat, encoding/decoding using MessagePack and ensures thread-safety.
+This library handles synchronization, heartbeat, encoding/decoding using MessagePack (or a custom codec) and ensures thread-safety.
 
 ## Project Name
 
@@ -11,6 +14,10 @@ This library handles synchronization, heartbeat, encoding/decoding using Message
 ## Documentation
 
 See the documentation at [GoDoc](https://godoc.org/github.com/desertbit/pakt).
+
+## Protocol Specification
+
+See the [protocol specification](PROTOCOL.md).
 
 ## Sample
 

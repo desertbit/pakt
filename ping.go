@@ -45,7 +45,7 @@ func (s *Socket) timeoutLoop() {
 			timeout.Reset(socketTimeout)
 
 		case <-timeout.C:
-			Log.Warningf("socket: closed socket: timeout reached")
+			Log.Warningf("socket: closed: timeout reached")
 
 			// Close the socket on timeout.
 			s.Close()
@@ -71,15 +71,10 @@ func (s *Socket) pingLoop() {
 			timer.Reset(pingInterval)
 
 		case <-timer.C:
-			// Create the header.
-			h := &header{
-				Type: headerTypePing,
-			}
-
 			// Send a ping request to the socket peer.
-			err := s.write(h)
+			err := s.write(typePing, nil, nil)
 			if err != nil {
-				Log.Errorf("socket: failed to send ping request: %v", err)
+				Log.Warningf("socket: failed to send ping request: %v", err)
 			}
 		}
 	}

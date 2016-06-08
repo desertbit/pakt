@@ -47,7 +47,7 @@ func onNewSocket(s *pakt.Socket) {
 	// s.SetCallTimeout(time.Minute)
 
 	// Optional set the maximum message size.
-	// s.SetMaxMessageSize(4090)
+	// s.SetMaxMessageSize(100 * 1024)
 
 	// Set a function which is triggered as soon as the socket closed.
 	// Optionally use the s.ClosedChan channel.

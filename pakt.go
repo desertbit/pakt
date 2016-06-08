@@ -29,7 +29,8 @@ import (
 	"sync"
 	"time"
 
-	msgpack "gopkg.in/vmihailenco/msgpack.v2"
+	"github.com/desertbit/pakt/codec"
+	"github.com/desertbit/pakt/codec/msgpack"
 )
 
 //#################//
@@ -37,14 +38,31 @@ import (
 //#################//
 
 const (
-	defaultMaxMessageSize = 4090
+	// ProtocolVersion defines the protocol version defined in the specifications.
+	ProtocolVersion byte = 0
 
-	defaultCallTimeout = 30 * time.Second
+	// DefaultMaxMessageSize specifies the default maximum message payload size in KiloBytes.
+	DefaultMaxMessageSize = 100 * 1024
+
+	// DefaultCallTimeout specifies the default timeout for a call request.
+	DefaultCallTimeout = 30 * time.Second
+)
+
+const (
+	maxHeaderBufferSize = 10 * 1024 // 10 KB
 
 	socketTimeout = 45 * time.Second
-	pingInterval  = 30 * time.Second
+	pingInterval  = 30 * time.Second // Should be smaller than the socket timeout.
 	readTimeout   = 40 * time.Second // Should be bigger than ping interval.
 	writeTimeout  = 30 * time.Second
+)
+
+const (
+	typeClose      byte = 0
+	typePing       byte = 1
+	typePong       byte = 2
+	typeCall       byte = 3
+	typeCallReturn byte = 4
 )
 
 //#################//
@@ -52,27 +70,40 @@ const (
 //#################//
 
 var (
-	ErrTimeout                = errors.New("timeout")
-	ErrMaxMessageSizeExceeded = errors.New("maximum message size exceeded")
+	// ErrClosed defines the error if the socket connection is closed.
+	ErrClosed = errors.New("socket closed")
+
+	// ErrTimeout defines the error if the call timeout is reached.
+	ErrTimeout = errors.New("timeout")
+
+	// ErrMaxMsgSizeExceeded if the maximum message size is exceeded for a call request.
+	ErrMaxMsgSizeExceeded = errors.New("maximum message size exceeded")
 )
 
 //###################//
 //### Socket Type ###//
 //###################//
 
+// Func defines a callable PAKT function.
 type Func func(c *Context) (data interface{}, err error)
+
+// Funcs defines a set of functions.
 type Funcs map[string]Func
 
+// ErrorHook defines the error callback function.
 type ErrorHook func(funcID string, err error)
 
+// ClosedChan defines a channel which is closed as soon as the socket is closed.
 type ClosedChan <-chan struct{}
 
+// Socket defines the PAKT socket implementation.
 type Socket struct {
 	// Value is a custom value which can be set.
 	Value interface{}
 
 	id             string
 	conn           net.Conn
+	codec          codec.Codec
 	writeMutex     sync.Mutex
 	callTimeout    time.Duration
 	maxMessageSize int
@@ -99,8 +130,9 @@ func NewSocket(conn net.Conn, vars ...string) *Socket {
 	// Create a new socket.
 	s := &Socket{
 		conn:                 conn,
-		callTimeout:          defaultCallTimeout,
-		maxMessageSize:       defaultMaxMessageSize,
+		codec:                msgpack.Codec,
+		callTimeout:          DefaultCallTimeout,
+		maxMessageSize:       DefaultMaxMessageSize,
 		resetTimeoutChan:     make(chan struct{}, 1),
 		resetPingTimeoutChan: make(chan struct{}, 1),
 		closeChan:            make(chan struct{}),
@@ -146,6 +178,12 @@ func (s *Socket) SetMaxMessageSize(size int) {
 	s.maxMessageSize = size
 }
 
+// SetCodec sets the encoding and decoding codec.
+// Only set this before calling Ready().
+func (s *Socket) SetCodec(c codec.Codec) {
+	s.codec = c
+}
+
 // SetErrorHook sets the error hook function which is triggered, if a local
 // remote callable function returns an error. This hook can be used for logging purpose.
 // Only set this hook during initialization. This method is not thread-safe.
@@ -181,19 +219,27 @@ func (s *Socket) Close() {
 	// Update the flag.
 	s.isClosed = true
 
-	// Close the close channel.
-	close(s.closeChan)
+	// Call this in a new goroutine to not block (mutex lock).
+	// Due to the nested write method call.
+	go func() {
+		// Tell the other peer, that the connection was closed.
+		// Ignore errors. The connection might be closed already.
+		_ = s.write(typeClose, nil, nil)
 
-	// Close the socket connection.
-	err := s.conn.Close()
-	if err != nil {
-		Log.Warningf("socket: failed to close socket: %v", err)
-	}
+		// Close the close channel.
+		close(s.closeChan)
 
-	// Call the on close function if defined.
-	if s.onCloseFunc != nil {
-		s.onCloseFunc()
-	}
+		// Close the socket connection.
+		err := s.conn.Close()
+		if err != nil {
+			Log.Warningf("socket: failed to close the socket: %v", err)
+		}
+
+		// Call the on close function if defined.
+		if s.onCloseFunc != nil {
+			s.onCloseFunc()
+		}
+	}()
 }
 
 // RegisterFunc registers a remote function.
@@ -230,20 +276,26 @@ func (s *Socket) SetCallTimeout(t time.Duration) {
 // The first variadic argument specifies an optional data value [interface{}].
 // The second variadic argument specifies an optional call timeout [time.Duration].
 // Returns ErrTimeout on a timeout.
+// Returns ErrClosed if the connection is closed.
 func (s *Socket) Call(id string, args ...interface{}) (*Context, error) {
 	// Create a new channel with its key.
 	key, channel := s.funcChain.New()
 	defer s.funcChain.Delete(key)
 
 	// Create the header.
-	header := &header{
-		Type:      headerTypeCall,
+	header := &headerCall{
 		FuncID:    id,
 		ReturnKey: key,
 	}
 
+	// Obtain the data if present.
+	var data interface{}
+	if len(args) > 0 {
+		data = args[0]
+	}
+
 	// Write to the client.
-	err := s.write(header, args...)
+	err := s.write(typeCall, header, data)
 	if err != nil {
 		return nil, err
 	}
@@ -265,6 +317,9 @@ func (s *Socket) Call(id string, args ...interface{}) (*Context, error) {
 
 	// Wait for a response.
 	select {
+	case <-s.closeChan:
+		return nil, ErrClosed
+
 	case <-timeout.C:
 		return nil, ErrTimeout
 
@@ -275,10 +330,7 @@ func (s *Socket) Call(id string, args ...interface{}) (*Context, error) {
 			return nil, fmt.Errorf("failed to assert return data")
 		}
 
-		// Create a new context.
-		context := newContext(s, rData.Data)
-
-		return context, rData.Err
+		return rData.Context, rData.Err
 	}
 }
 
@@ -286,74 +338,67 @@ func (s *Socket) Call(id string, args ...interface{}) (*Context, error) {
 //### Private ###//
 //###############//
 
-type headerType byte
-
-const (
-	headerTypeCall   = 1 << iota
-	headerTypeReturn = 1 << iota
-	headerTypePing   = 1 << iota
-	headerTypePong   = 1 << iota
-)
-
-type header struct {
-	Type      headerType
-	FuncID    string
-	ReturnKey string
-	ReturnErr string
-}
-
 type retChainData struct {
-	Data []byte
-	Err  error
+	Context *Context
+	Err     error
 }
 
-func (s *Socket) write(h *header, dataArg ...interface{}) error {
-	var data []byte
-	var err error
+func (s *Socket) write(reqType byte, headerI interface{}, dataI interface{}) (err error) {
+	var payload, header []byte
 
-	// Obtain and marshal the data if present.
-	if len(dataArg) > 0 {
-		// Marshal it msgpack.
-		data, err = msgpack.Marshal(dataArg[0])
+	// Marshal the payload data if present.
+	if dataI != nil {
+		payload, err = s.codec.Encode(dataI)
 		if err != nil {
-			return err
+			return fmt.Errorf("encode: %v", err)
 		}
 	}
 
-	// Marshal to msgpack.
-	headerData, err := msgpack.Marshal(h)
+	// Check if the maximum message size is exceeded (Only the payload size without the header).
+	if len(payload) > s.maxMessageSize {
+		return ErrMaxMsgSizeExceeded
+	}
+
+	// Get the length of the payload data in bytes.
+	payloadLen, err := uint32ToBytes(uint32(len(payload)))
 	if err != nil {
 		return err
 	}
 
-	// Hint: Payload structure:
-	// uint32 (total size) + uint16 (header size) + header + data payload.
+	// Marshal the header data if present.
+	if headerI != nil {
+		header, err = s.codec.Encode(headerI)
+		if err != nil {
+			return fmt.Errorf("encode header: %v", err)
+		}
+	}
+
+	// Check if the maximum header size is exceeded.
+	if len(header) > maxHeaderBufferSize {
+		return fmt.Errorf("maximum header size exceeded")
+	}
 
 	// Get the length of the header in bytes.
-	headerLen, err := uint16ToBytes(uint16(len(headerData)))
+	headerLen, err := uint16ToBytes(uint16(len(header)))
 	if err != nil {
 		return err
 	}
 
-	// Create and add the header and its size to the buffer.
-	buf := append(headerLen, headerData...)
+	// Create the head of the message.
+	head := []byte{ProtocolVersion, reqType}
 
-	// Append the data to the buffer.
-	buf = append(buf, data...)
+	// Calulcate the total bytes of this message.
+	totalLen := len(head) + len(headerLen) + len(payloadLen) + len(header) + len(payload)
 
-	// Check if the maximum size is exceeded.
-	if len(buf) > s.maxMessageSize {
-		return ErrMaxMessageSizeExceeded
-	}
-
-	// Get the total length.
-	bufLen, err := uint32ToBytes(uint32(len(buf)))
-	if err != nil {
-		return err
-	}
-
-	// Finally prepend the total length.
-	buf = append(bufLen, buf...)
+	// Ensure that all bytes were written to the connection.
+	// Otherwise immediately close the socket to prevent out-of-sync.
+	var bytesWritten int
+	defer func() {
+		if bytesWritten != totalLen {
+			err = fmt.Errorf("write: not all message bytes have been written: closing socket")
+			s.Close()
+		}
+	}()
 
 	// Calculate the write deadline.
 	writeDeadline := time.Now().Add(writeTimeout)
@@ -366,11 +411,37 @@ func (s *Socket) write(h *header, dataArg ...interface{}) error {
 	s.conn.SetWriteDeadline(writeDeadline)
 
 	// Write to the socket.
-	n, err := s.conn.Write(buf)
+	bytesWritten, err = s.conn.Write(head)
 	if err != nil {
 		return err
-	} else if n != len(buf) {
-		return fmt.Errorf("not all data bytes hav been written to the socket: %v written of total %v bytes", n, len(buf))
+	}
+
+	n, err := s.conn.Write(headerLen)
+	bytesWritten += n
+	if err != nil {
+		return err
+	}
+
+	n, err = s.conn.Write(payloadLen)
+	bytesWritten += n
+	if err != nil {
+		return err
+	}
+
+	if len(header) > 0 {
+		n, err = s.conn.Write(header)
+		bytesWritten += n
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(payload) > 0 {
+		n, err = s.conn.Write(payload)
+		bytesWritten += n
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -385,9 +456,6 @@ func (s *Socket) read(buf []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-
-	// Reset the timeout, because data was successful read from the socket.
-	s.resetTimeout()
 
 	return n, nil
 }
@@ -404,81 +472,116 @@ func (s *Socket) readLoop() {
 	defer s.Close()
 
 	var err error
+	var n, bytesRead int
 
-	var n int
-	var totalBytesRead uint32
-	var totalDataBytesRead int
-	var dataSize uint32
-	dataSizeBuf := make([]byte, 4)
+	// Message Head.
+	headBuf := make([]byte, 8)
+	var headerLen16 uint16
+	var headerLen int
+	var payloadLen32 uint32
+	var payloadLen int
 
+	// Read loop.
 	for {
-		// Reset the count.
-		totalDataBytesRead = 0
-
-		// Read the data size from the stream.
-		for totalDataBytesRead < 4 {
-			// Read from the socket.
-			n, err = s.read(dataSizeBuf[totalDataBytesRead:])
+		// Read the head from the stream.
+		bytesRead = 0
+		for bytesRead < 8 {
+			n, err = s.read(headBuf[bytesRead:])
 			if err != nil {
-				// Log if not EOF and if not closed.
+				// Log only if not closed.
 				if err != io.EOF && !s.isClosed {
-					Log.Warningf("socket: failed to read from the socket: %v", err)
+					Log.Warningf("socket: read: %v", err)
 				}
 				return
 			}
-
-			// Update the count.
-			totalDataBytesRead += n
+			bytesRead += n
 		}
 
-		// Obtain the data size.
-		dataSize, err = bytesToUint32(dataSizeBuf)
+		// The first byte is the version field.
+		// Check if this protocol version matches.
+		if headBuf[0] != ProtocolVersion {
+			Log.Warningf("socket: read: invalid protocol version: %v != %v", ProtocolVersion, headBuf[0])
+			return
+		}
+
+		// Extract the head fields.
+		reqType := headBuf[1]
+
+		// Extract the header length.
+		headerLen16, err = bytesToUint16(headBuf[2:4])
 		if err != nil {
-			Log.Warningf("socket: failed to read data size from stream: %v", err)
+			Log.Warningf("socket: read: failed to extract header length: %v", err)
 			return
-		} else if dataSize == 0 {
-			Log.Warning("socket: invalid data size received: data size == 0")
+		}
+		headerLen = int(headerLen16)
+
+		// Check if the maximum header size is exceeded.
+		if headerLen > maxHeaderBufferSize {
+			Log.Warningf("socket: read: maximum header size exceeded")
 			return
 		}
 
-		// Check if the size exceeds the maximum message size.
-		if dataSize > uint32(s.maxMessageSize) {
-			Log.Warning("socket: maximum message size exceed")
+		// Extract the payload length.
+		payloadLen32, err = bytesToUint32(headBuf[4:8])
+		if err != nil {
+			Log.Warningf("socket: read: failed to extract payload length: %v", err)
+			return
+		}
+		payloadLen = int(payloadLen32)
+
+		// Check if the maximum payload size is exceeded.
+		if payloadLen > s.maxMessageSize {
+			Log.Warningf("socket: read: maximum message size exceeded")
 			return
 		}
 
-		// Reset the count.
-		totalBytesRead = 0
-
-		// Create the buffer.
-		buf := make([]byte, dataSize)
-
-		// Read the data from the stream.
-		for totalBytesRead < dataSize {
-			// Read from the socket.
-			n, err = s.read(buf[totalBytesRead:])
-			if err != nil {
-				// Log if not EOF and if not closed.
-				if err != io.EOF && !s.isClosed {
-					Log.Warningf("socket: failed to read from the socket: %v", err)
+		// Read the header bytes from the stream.
+		var headerBuf []byte
+		if headerLen > 0 {
+			headerBuf = make([]byte, headerLen)
+			bytesRead = 0
+			for bytesRead < headerLen {
+				n, err = s.read(headerBuf[bytesRead:])
+				if err != nil {
+					// Log only if not closed.
+					if err != io.EOF && !s.isClosed {
+						Log.Warningf("socket: read: %v", err)
+					}
+					return
 				}
-				return
+				bytesRead += n
 			}
-
-			// Update the count.
-			totalBytesRead += uint32(n)
 		}
 
-		// Handle the received data bytes in a new goroutine.
+		// Read the payload bytes from the stream.
+		var payloadBuf []byte
+		if payloadLen > 0 {
+			payloadBuf = make([]byte, payloadLen)
+			bytesRead = 0
+			for bytesRead < payloadLen {
+				n, err = s.read(payloadBuf[bytesRead:])
+				if err != nil {
+					// Log only if not closed.
+					if err != io.EOF && !s.isClosed {
+						Log.Warningf("socket: read: %v", err)
+					}
+					return
+				}
+				bytesRead += n
+			}
+		}
+
+		// Handle the received message in a new goroutine.
 		go func() {
-			if err := s.handleReceivedData(buf); err != nil {
-				Log.Warningf("socket: handle received data: %v", err)
+			err := s.handleReceivedMessage(reqType, headerBuf, payloadBuf)
+			if err != nil {
+				Log.Warningf("socket: %v", err)
 			}
 		}()
 	}
 }
 
-func (s *Socket) handleReceivedData(rawData []byte) (err error) {
+func (s *Socket) handleReceivedMessage(reqType byte, headerBuf, payloadBuf []byte) (err error) {
 	// Catch panics.
 	defer func() {
 		if e := recover(); e != nil {
@@ -486,123 +589,137 @@ func (s *Socket) handleReceivedData(rawData []byte) (err error) {
 		}
 	}()
 
-	// Validate.
-	if len(rawData) < 2 {
-		return fmt.Errorf("invalid data: not enough bytes to extract the header length")
-	}
+	// Reset the timeout, because data was successful read from the socket.
+	s.resetTimeout()
 
-	// Obtain the length of the header.
-	buf := rawData[:2]
-	rawData = rawData[2:]
-	headerLen, err := bytesToUint16(buf)
-	if err != nil {
-		return fmt.Errorf("failed to extract the header length")
-	}
+	// Check the request type.
+	switch reqType {
+	case typeClose:
+		// The socket peer has closed the connection.
+		s.Close()
 
-	// Validate.
-	if headerLen == 0 {
-		return fmt.Errorf("invalid data: header size is zero")
-	} else if uint16(len(rawData)) < headerLen {
-		return fmt.Errorf("invalid data: not enough bytes to extract the header")
-	}
-
-	// Extract the header data.
-	buf = rawData[:headerLen]
-	rawData = rawData[headerLen:]
-
-	// Unmarshal the header data.
-	headerD := &header{}
-	err = msgpack.Unmarshal(buf, headerD)
-	if err != nil {
-		return fmt.Errorf("msgpack unmarshal header: %v", err)
-	}
-
-	switch headerD.Type {
-	case headerTypePong:
-		// Don't do anything. The socket timeouts have
-		// already been reset in the read method.
-
-	case headerTypePing:
-		// Create the header.
-		headerD = &header{
-			Type: headerTypePong,
-		}
-
-		// Send a pong response.
-		err = s.write(headerD)
+	case typePing:
+		// The socket peer has requested a pong response.
+		err = s.write(typePong, nil, nil)
 		if err != nil {
 			return fmt.Errorf("failed to send pong response: %v", err)
 		}
 
-	case headerTypeReturn:
-		// Get the channel by the return key.
-		channel := s.funcChain.Get(headerD.ReturnKey)
-		if channel == nil {
-			return fmt.Errorf("return request: no channel exists with ID=%v (call timeout exceeded?)", headerD.ReturnKey)
-		}
+	case typePong:
+		// Don't do anything. The socket timeouts have already been reset.
 
-		// Create the error if present.
-		var retErr error
-		if len(headerD.ReturnErr) > 0 {
-			retErr = errors.New(headerD.ReturnErr)
-		}
+	case typeCall:
+		return s.handleCallRequest(headerBuf, payloadBuf)
 
-		// Create the channel data.
-		rData := retChainData{
-			Data: rawData,
-			Err:  retErr,
-		}
-
-		// Send the return data to the channel.
-		channel <- rData
-
-	case headerTypeCall:
-		// Obtain the function defined by the ID.
-		f, ok := func() (Func, bool) {
-			// Lock the mutex.
-			s.funcMapMutex.Lock()
-			defer s.funcMapMutex.Unlock()
-
-			f, ok := s.funcMap[headerD.FuncID]
-			return f, ok
-		}()
-		if !ok {
-			return fmt.Errorf("call request: requested function does not exists: id=%v", headerD.FuncID)
-		}
-
-		// Create a new context.
-		context := newContext(s, rawData)
-
-		// Call the function.
-		retData, retErr := f(context)
-
-		// Get the string representation of the error if present.
-		var retErrString string
-		if retErr != nil {
-			retErrString = retErr.Error()
-		}
-
-		// Create the header.
-		responseHeaderD := &header{
-			Type:      headerTypeReturn,
-			ReturnKey: headerD.ReturnKey,
-			ReturnErr: retErrString,
-		}
-
-		// Write to the client.
-		err = s.write(responseHeaderD, retData)
-		if err != nil {
-			return fmt.Errorf("call request: send return data: %v", err)
-		}
-
-		// Call the error hook if defined.
-		if retErr != nil && s.errorHook != nil {
-			s.errorHook(headerD.FuncID, retErr)
-		}
+	case typeCallReturn:
+		return s.handleCallReturnRequest(headerBuf, payloadBuf)
 
 	default:
-		return fmt.Errorf("invalid header type: %v", headerD.Type)
+		return fmt.Errorf("invalid request type: %v", reqType)
 	}
 
 	return nil
+}
+
+func (s *Socket) handleCallRequest(headerBuf, payloadBuf []byte) (err error) {
+	// Decode the header.
+	var header headerCall
+	err = s.codec.Decode(headerBuf, &header)
+	if err != nil {
+		return fmt.Errorf("decode call header: %v", err)
+	}
+
+	// Obtain the function defined by the ID.
+	f, ok := func() (Func, bool) {
+		// Lock the mutex.
+		s.funcMapMutex.Lock()
+		defer s.funcMapMutex.Unlock()
+
+		f, ok := s.funcMap[header.FuncID]
+		return f, ok
+	}()
+	if !ok {
+		return fmt.Errorf("call request: requested function does not exists: id=%v", header.FuncID)
+	}
+
+	// Create a new context.
+	context := newContext(s, payloadBuf)
+
+	// Call the function.
+	retData, retErr := f(context)
+
+	// Get the string representation of the error if present.
+	var retErrString string
+	if retErr != nil {
+		retErrString = retErr.Error()
+	}
+
+	// Create the return header.
+	retHeader := &headerCallReturn{
+		ReturnKey: header.ReturnKey,
+		ReturnErr: retErrString,
+	}
+
+	// Write to the client.
+	err = s.write(typeCallReturn, retHeader, retData)
+	if err != nil {
+		return fmt.Errorf("call request: send return request: %v", err)
+	}
+
+	// Call the error hook if defined.
+	if retErr != nil && s.errorHook != nil {
+		s.errorHook(header.FuncID, retErr)
+	}
+
+	return nil
+}
+
+func (s *Socket) handleCallReturnRequest(headerBuf, payloadBuf []byte) (err error) {
+	// Decode the header.
+	var header headerCallReturn
+	err = s.codec.Decode(headerBuf, &header)
+	if err != nil {
+		return fmt.Errorf("decode call return header: %v", err)
+	}
+
+	// Get the channel by the return key.
+	channel := s.funcChain.Get(header.ReturnKey)
+	if channel == nil {
+		return fmt.Errorf("call return request failed (call timeout exceeded?)")
+	}
+
+	// Create the error if present.
+	var retErr error
+	if len(header.ReturnErr) > 0 {
+		retErr = errors.New(header.ReturnErr)
+	}
+
+	// Create a new context.
+	context := newContext(s, payloadBuf)
+
+	// Create the channel data.
+	rData := retChainData{
+		Context: context,
+		Err:     retErr,
+	}
+
+	// Send the return data to the channel.
+	// Ensure that there is a receiving endpoint.
+	// Otherwise we would have a lost blocking goroutine.
+	select {
+	case channel <- rData:
+		return nil
+
+	default:
+		// Retry with a timeout.
+		timeout := time.NewTimer(time.Second)
+		defer timeout.Stop()
+
+		select {
+		case channel <- rData:
+			return nil
+		case <-timeout.C:
+			return fmt.Errorf("call return request failed (call timeout exceeded?)")
+		}
+	}
 }

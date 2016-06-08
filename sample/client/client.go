@@ -20,6 +20,7 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"github.com/desertbit/pakt"
 	"github.com/desertbit/pakt/tcp"
@@ -36,7 +37,7 @@ func main() {
 	// s.SetCallTimeout(time.Minute)
 
 	// Optional set the maximum message size.
-	// s.SetMaxMessageSize(4090)
+	// s.SetMaxMessageSize(100 * 1024)
 
 	// Set a function which is triggered as soon as the socket closed.
 	// Optionally use the s.ClosedChan channel.
@@ -76,6 +77,9 @@ func main() {
 
 	// Log.
 	log.Printf("received return data from server: %+v", data)
+
+	// Exit the application as soon as the socket connection closes.
+	<-s.ClosedChan()
 }
 
 func bar(c *pakt.Context) (interface{}, error) {
@@ -89,6 +93,12 @@ func bar(c *pakt.Context) (interface{}, error) {
 
 	// Log.
 	log.Printf("received data from server: %+v", data)
+
+	// Close the socket and exit the application after a short timeout.
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		c.Socket().Close()
+	}()
 
 	// Just send the data back to the client.
 	return data, nil

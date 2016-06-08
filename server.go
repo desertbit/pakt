@@ -31,6 +31,7 @@ const (
 //### Server Type ###//
 //###################//
 
+// Server defines the PAKT server implementation.
 type Server struct {
 	ln net.Listener
 
@@ -90,7 +91,7 @@ func (s *Server) IsClosed() bool {
 	return s.isClosed
 }
 
-// Returns a channel which is closed as soon as the network listener is closed.
+// ClosedChan returns a channel which is closed as soon as the network listener is closed.
 func (s *Server) ClosedChan() ClosedChan {
 	return s.closeChan
 }
@@ -100,6 +101,7 @@ func (s *Server) OnClose(f func()) {
 	s.onCloseFunc = f
 }
 
+// Close the server and disconnect all connected sockets.
 func (s *Server) Close() {
 	s.closeMutex.Lock()
 	defer s.closeMutex.Unlock()

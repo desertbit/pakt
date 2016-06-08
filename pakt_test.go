@@ -77,7 +77,7 @@ func TestServerMultipleSockets(t *testing.T) {
 			C: 2408234082374023,
 		}
 
-		for i := 0; i < 1000; i++ {
+		for i := 0; i < 100; i++ {
 			c, err := s.Call("call", d)
 			must(err == nil, "call request: ", err)
 
@@ -129,7 +129,7 @@ func TestServerMultipleSockets(t *testing.T) {
 			c.Ready()
 
 			var s string
-			for i := 0; i < 1000; i++ {
+			for i := 0; i < 100; i++ {
 				cc, err := c.Call("greet", "Greet")
 				must(err == nil, "client: call greet: ", err)
 				err = cc.Decode(&s)

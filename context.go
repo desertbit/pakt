@@ -21,12 +21,10 @@ package pakt
 import (
 	"errors"
 	"fmt"
-
-	msgpack "gopkg.in/vmihailenco/msgpack.v2"
-	msgpackCodes "gopkg.in/vmihailenco/msgpack.v2/codes"
 )
 
 var (
+	// ErrNoContextData defines the error if no context data is available.
 	ErrNoContextData = errors.New("no context data available to decode")
 )
 
@@ -34,6 +32,7 @@ var (
 //### Conext Type ####//
 //####################//
 
+// A Context defines a function context.
 type Context struct {
 	socket *Socket
 	data   []byte
@@ -56,14 +55,14 @@ func (c *Context) Socket() *Socket {
 // Returns ErrNoContextData if there is no context data available to decode.
 func (c *Context) Decode(v interface{}) error {
 	// Check if no data was passed.
-	if len(c.data) == 0 || (len(c.data) == 1 && c.data[0] == msgpackCodes.Nil) {
+	if len(c.data) == 0 {
 		return ErrNoContextData
 	}
 
-	// Unmarshal the data.
-	err := msgpack.Unmarshal(c.data, v)
+	// Decode the data.
+	err := c.socket.codec.Decode(c.data, v)
 	if err != nil {
-		return fmt.Errorf("msgpack unmarshal: %v", err)
+		return fmt.Errorf("decode: %v", err)
 	}
 
 	return nil
