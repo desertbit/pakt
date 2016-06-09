@@ -1,6 +1,6 @@
 # PAKT Protocol
 
-This document defines the PAKT protocol specifiction.
+This document defines the PAKT protocol specification.
 
 ## Byte Order
 
@@ -19,7 +19,7 @@ All fields are encoded in network order (**big endian**).
 
 ### Version Field
 
-The version field is used for future backwards compatibily. At the current time, the field is always set to 0, to indicate the initial version.
+The version field is used for future backward compatibility. At the current time, the field is always set to 0, to indicate the initial version.
 
 ### Type Field
 
