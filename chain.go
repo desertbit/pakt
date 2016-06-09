@@ -79,26 +79,10 @@ func (c *chain) Get(id string) chainChan {
 }
 
 func (c *chain) Delete(id string) {
-	var channel chainChan
+	// Lock the mutex.
+	c.chainChanMutex.Lock()
+	defer c.chainChanMutex.Unlock()
 
-	func() {
-		// Lock the mutex.
-		c.chainChanMutex.Lock()
-		defer c.chainChanMutex.Unlock()
-
-		// Get the channel.
-		channel = c.chanMap[id]
-
-		// Delete the channel from the map.
-		delete(c.chanMap, id)
-	}()
-
-	if channel != nil {
-		// Try to read from it in a not blocking way and discard the data.
-		// This frees goroutines, which are currently trying to write to it.
-		select {
-		case <-channel:
-		default:
-		}
-	}
+	// Delete the channel from the map.
+	delete(c.chanMap, id)
 }
