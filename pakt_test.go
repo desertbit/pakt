@@ -314,3 +314,60 @@ func TestSocketTimeout(t *testing.T) {
 
 	server.Close()
 }
+
+func TestSocketClose(t *testing.T) {
+	var wg sync.WaitGroup
+
+	server, err := tcp.NewServer("127.0.0.1:45355")
+	require.NoError(t, err)
+	require.NotNil(t, server)
+
+	must := func(ok bool, args ...interface{}) {
+		if ok {
+			return
+		}
+
+		wg.Done()
+		t.Fatal(args...)
+	}
+
+	wg.Add(3)
+
+	go func() {
+		server.Listen()
+	}()
+
+	go func() {
+		c, err := tcp.NewClient("127.0.0.1:45355")
+		must(err == nil, "client")
+		must(c != nil, "client")
+
+		c.OnClose(func(s *pakt.Socket) {
+			must(c == s)
+			wg.Done()
+		})
+
+		c.OnClose(func(s *pakt.Socket) {
+			must(c == s)
+			wg.Done()
+		})
+
+		// Start a goroutine for race test.
+		go func() {
+			for {
+				if c.IsClosed() {
+					return
+				}
+			}
+		}()
+
+		must(!c.IsClosed())
+		c.Close()
+		must(c.IsClosed())
+
+		wg.Done()
+	}()
+
+	wg.Wait()
+	server.Close()
+}

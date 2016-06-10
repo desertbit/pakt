@@ -96,6 +96,9 @@ type ErrorHook func(funcID string, err error)
 // ClosedChan defines a channel which is closed as soon as the socket is closed.
 type ClosedChan <-chan struct{}
 
+// OnCloseFunc defines the callback function which is triggered as soon as the socket closes.
+type OnCloseFunc func(s *Socket)
+
 // Socket defines the PAKT socket implementation.
 type Socket struct {
 	// Value is a custom value which can be set.
@@ -113,10 +116,8 @@ type Socket struct {
 	resetTimeoutChan     chan struct{}
 	resetPingTimeoutChan chan struct{}
 
-	closeMutex  sync.Mutex
-	isClosed    bool
-	closeChan   chan struct{}
-	onCloseFunc func()
+	closeMutex sync.Mutex
+	closeChan  chan struct{}
 
 	funcMap      map[string]Func
 	funcMapMutex sync.Mutex
@@ -176,44 +177,64 @@ func (s *Socket) RemoteAddr() net.Addr {
 }
 
 // SetMaxMessageSize sets the maximum message size in bytes.
+// Only set this during initialization.
 func (s *Socket) SetMaxMessageSize(size int) {
 	s.maxMessageSize = size
 }
 
 // SetErrorHook sets the error hook function which is triggered, if a local
 // remote callable function returns an error. This hook can be used for logging purpose.
-// Only set this hook during initialization. This method is not thread-safe.
+// Only set this hook during initialization.
 func (s *Socket) SetErrorHook(h ErrorHook) {
 	s.errorHook = h
 }
 
+// SetCallTimeout sets the timeout for call requests.
+// Only set this during initialization.
+func (s *Socket) SetCallTimeout(t time.Duration) {
+	s.callTimeout = t
+}
+
 // IsClosed returns a boolean indicating if the socket connection is closed.
+// This method is thread-safe.
 func (s *Socket) IsClosed() bool {
-	return s.isClosed
+	select {
+	case <-s.closeChan:
+		return true
+	default:
+		return false
+	}
 }
 
 // OnClose triggers the function as soon as the connection closes.
-func (s *Socket) OnClose(f func()) {
-	s.onCloseFunc = f
+// This method can be called multiple times to bind multiple functions.
+// This method is thread-safe.
+func (s *Socket) OnClose(f OnCloseFunc) {
+	go func() {
+		<-s.closeChan
+		f(s)
+	}()
 }
 
 // ClosedChan returns a channel which is closed as soon as the socket is closed.
+// This method is thread-safe.
 func (s *Socket) ClosedChan() ClosedChan {
 	return s.closeChan
 }
 
 // Close the socket connection.
+// This method is thread-safe.
 func (s *Socket) Close() {
 	s.closeMutex.Lock()
 	defer s.closeMutex.Unlock()
 
 	// Check if already closed.
-	if s.isClosed {
+	if s.IsClosed() {
 		return
 	}
 
-	// Update the flag.
-	s.isClosed = true
+	// Close the close channel.
+	close(s.closeChan)
 
 	// Call this in a new goroutine to not block (mutex lock).
 	// Due to the nested write method call.
@@ -222,18 +243,10 @@ func (s *Socket) Close() {
 		// Ignore errors. The connection might be closed already.
 		_ = s.write(typeClose, nil, nil)
 
-		// Close the close channel.
-		close(s.closeChan)
-
 		// Close the socket connection.
 		err := s.conn.Close()
 		if err != nil {
 			Log.Warningf("socket: failed to close the socket: %v", err)
-		}
-
-		// Call the on close function if defined.
-		if s.onCloseFunc != nil {
-			s.onCloseFunc()
 		}
 	}()
 }
@@ -262,17 +275,13 @@ func (s *Socket) RegisterFuncs(funcs Funcs) {
 	}
 }
 
-// SetCallTimeout sets the timeout for call requests.
-func (s *Socket) SetCallTimeout(t time.Duration) {
-	s.callTimeout = t
-}
-
 // Call a remote function and wait for its result.
 // This method blocks until the remote socket function returns.
 // The first variadic argument specifies an optional data value [interface{}].
 // The second variadic argument specifies an optional call timeout [time.Duration].
 // Returns ErrTimeout on a timeout.
 // Returns ErrClosed if the connection is closed.
+// This method is thread-safe.
 func (s *Socket) Call(id string, args ...interface{}) (*Context, error) {
 	// Create a new channel with its key.
 	key, channel := s.funcChain.New()
@@ -485,7 +494,7 @@ func (s *Socket) readLoop() {
 			n, err = s.read(headBuf[bytesRead:])
 			if err != nil {
 				// Log only if not closed.
-				if err != io.EOF && !s.isClosed {
+				if err != io.EOF && !s.IsClosed() {
 					Log.Warningf("socket: read: %v", err)
 				}
 				return
@@ -540,7 +549,7 @@ func (s *Socket) readLoop() {
 				n, err = s.read(headerBuf[bytesRead:])
 				if err != nil {
 					// Log only if not closed.
-					if err != io.EOF && !s.isClosed {
+					if err != io.EOF && !s.IsClosed() {
 						Log.Warningf("socket: read: %v", err)
 					}
 					return
@@ -558,7 +567,7 @@ func (s *Socket) readLoop() {
 				n, err = s.read(payloadBuf[bytesRead:])
 				if err != nil {
 					// Log only if not closed.
-					if err != io.EOF && !s.isClosed {
+					if err != io.EOF && !s.IsClosed() {
 						Log.Warningf("socket: read: %v", err)
 					}
 					return

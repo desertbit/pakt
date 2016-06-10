@@ -40,10 +40,8 @@ type Server struct {
 
 	onNewSocket func(*Socket)
 
-	closeMutex  sync.Mutex
-	isClosed    bool
-	closeChan   chan struct{}
-	onCloseFunc func()
+	closeMutex sync.Mutex
+	closeChan  chan struct{}
 }
 
 // NewServer creates a new PAKT server.
@@ -88,7 +86,12 @@ func (s *Server) Listen() {
 
 // IsClosed returns a boolean indicating if the network listener is closed.
 func (s *Server) IsClosed() bool {
-	return s.isClosed
+	select {
+	case <-s.closeChan:
+		return true
+	default:
+		return false
+	}
 }
 
 // ClosedChan returns a channel which is closed as soon as the network listener is closed.
@@ -97,8 +100,12 @@ func (s *Server) ClosedChan() ClosedChan {
 }
 
 // OnClose triggers the function as soon as the network listener closes.
+// This method can be called multiple times to bind multiple functions.
 func (s *Server) OnClose(f func()) {
-	s.onCloseFunc = f
+	go func() {
+		<-s.closeChan
+		f()
+	}()
 }
 
 // Close the server and disconnect all connected sockets.
@@ -107,12 +114,9 @@ func (s *Server) Close() {
 	defer s.closeMutex.Unlock()
 
 	// Check if already closed.
-	if s.isClosed {
+	if s.IsClosed() {
 		return
 	}
-
-	// Update the flag.
-	s.isClosed = true
 
 	// Close the close channel.
 	close(s.closeChan)
@@ -127,15 +131,11 @@ func (s *Server) Close() {
 	for _, s := range s.Sockets() {
 		s.Close()
 	}
-
-	// Call the on close function if defined.
-	if s.onCloseFunc != nil {
-		s.onCloseFunc()
-	}
 }
 
 // OnNewSocket sets the function which is
 // triggered if a new socket connection was made.
+// Only set this during initialization.
 func (s *Server) OnNewSocket(f func(*Socket)) {
 	s.onNewSocket = f
 }

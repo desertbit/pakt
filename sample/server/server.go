@@ -51,7 +51,7 @@ func onNewSocket(s *pakt.Socket) {
 
 	// Set a function which is triggered as soon as the socket closed.
 	// Optionally use the s.ClosedChan channel.
-	s.OnClose(func() {
+	s.OnClose(func(s *pakt.Socket) {
 		log.Printf("client socket closed with id: %s", s.ID())
 	})
 

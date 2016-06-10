@@ -69,7 +69,7 @@ func TestServerSocketsMap(t *testing.T) {
 	server.OnNewSocket(func(s *pakt.Socket) {
 		s.SetCallTimeout(2 * time.Second)
 
-		s.OnClose(func() {
+		s.OnClose(func(s *pakt.Socket) {
 			wg.Done()
 		})
 
