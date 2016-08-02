@@ -90,8 +90,11 @@ type Func func(c *Context) (data interface{}, err error)
 // Funcs defines a set of functions.
 type Funcs map[string]Func
 
+// CallHook defines the callback function.
+type CallHook func(s *Socket, funcID string, c *Context)
+
 // ErrorHook defines the error callback function.
-type ErrorHook func(funcID string, err error)
+type ErrorHook func(s *Socket, funcID string, err error)
 
 // ClosedChan defines a channel which is closed as soon as the socket is closed.
 type ClosedChan <-chan struct{}
@@ -123,6 +126,7 @@ type Socket struct {
 	funcMapMutex sync.Mutex
 	funcChain    *chain
 
+	callHook  CallHook
 	errorHook ErrorHook
 }
 
@@ -180,6 +184,13 @@ func (s *Socket) RemoteAddr() net.Addr {
 // Only set this during initialization.
 func (s *Socket) SetMaxMessageSize(size int) {
 	s.maxMessageSize = size
+}
+
+// SetCallHook sets the call hook function which is triggered, if a local
+// remote callable function will be called. This hook can be used for logging purpose.
+// Only set this hook during initialization.
+func (s *Socket) SetCallHook(h CallHook) {
+	s.callHook = h
 }
 
 // SetErrorHook sets the error hook function which is triggered, if a local
@@ -650,6 +661,11 @@ func (s *Socket) handleCallRequest(headerBuf, payloadBuf []byte) (err error) {
 	// Create a new context.
 	context := newContext(s, payloadBuf)
 
+	// Call the call hook if defined.
+	if s.callHook != nil {
+		s.callHook(s, header.FuncID, context)
+	}
+
 	// Call the function.
 	retData, retErr := f(context)
 
@@ -673,7 +689,7 @@ func (s *Socket) handleCallRequest(headerBuf, payloadBuf []byte) (err error) {
 
 	// Call the error hook if defined.
 	if retErr != nil && s.errorHook != nil {
-		s.errorHook(header.FuncID, retErr)
+		s.errorHook(s, header.FuncID, retErr)
 	}
 
 	return nil
