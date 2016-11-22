@@ -649,14 +649,9 @@ func (s *Socket) handleCallRequest(headerBuf, payloadBuf []byte) (err error) {
 	}
 
 	// Obtain the function defined by the ID.
-	f, ok := func() (Func, bool) {
-		// Lock the mutex.
-		s.funcMapMutex.Lock()
-		defer s.funcMapMutex.Unlock()
-
-		f, ok := s.funcMap[header.FuncID]
-		return f, ok
-	}()
+	s.funcMapMutex.Lock()
+	f, ok := s.funcMap[header.FuncID]
+	s.funcMapMutex.Unlock()
 	if !ok {
 		return fmt.Errorf("call request: requested function does not exists: id=%v", header.FuncID)
 	}
