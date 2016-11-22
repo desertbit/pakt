@@ -192,8 +192,11 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	// Add the new socket to the active sockets map.
 	// If the ID is already present, then generate a new one.
-	func() {
-		socket.id = randomString(socketIDLength)
+	err := func() (err error) {
+		socket.id, err = randomString(socketIDLength)
+		if err != nil {
+			return
+		}
 
 		// Lock the mutex.
 		s.socketsMutex.Lock()
@@ -205,12 +208,20 @@ func (s *Server) handleConnection(conn net.Conn) {
 				break
 			}
 
-			socket.id = randomString(socketIDLength)
+			socket.id, err = randomString(socketIDLength)
+			if err != nil {
+				return
+			}
 		}
 
 		// Add the socket to the map.
 		s.sockets[socket.id] = socket
+		return
 	}()
+	if err != nil {
+		Log.Errorf("server: new socket failed: %v", err)
+		return
+	}
 
 	// Remove the socket from the active sockets map on close.
 	go func() {

@@ -295,7 +295,10 @@ func (s *Socket) RegisterFuncs(funcs Funcs) {
 // This method is thread-safe.
 func (s *Socket) Call(id string, args ...interface{}) (*Context, error) {
 	// Create a new channel with its key.
-	key, channel := s.funcChain.New()
+	key, channel, err := s.funcChain.New()
+	if err != nil {
+		return nil, err
+	}
 	defer s.funcChain.Delete(key)
 
 	// Create the header.
@@ -311,7 +314,7 @@ func (s *Socket) Call(id string, args ...interface{}) (*Context, error) {
 	}
 
 	// Write to the client.
-	err := s.write(typeCall, header, data)
+	err = s.write(typeCall, header, data)
 	if err != nil {
 		return nil, err
 	}

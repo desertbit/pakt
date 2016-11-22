@@ -70,12 +70,15 @@ func uint32ToBytes(v uint32) (data []byte, err error) {
 }
 
 // randomString generates a random string.
-func randomString(n int) string {
+func randomString(n int) (string, error) {
 	const alphanum = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 	var bytes = make([]byte, n)
-	rand.Read(bytes)
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return "", err
+	}
 	for i, b := range bytes {
 		bytes[i] = alphanum[b%byte(len(alphanum))]
 	}
-	return string(bytes)
+	return string(bytes), nil
 }

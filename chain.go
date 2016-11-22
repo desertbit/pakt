@@ -41,48 +41,47 @@ func newChain() *chain {
 	}
 }
 
-func (c *chain) New() (string, chainChan) {
+func (c *chain) New() (id string, cc chainChan, err error) {
 	// Create a new channel.
-	channel := make(chainChan)
+	cc = make(chainChan)
 
-	// Create a new ID.
-	id := randomString(chainIDLength)
-	func() {
-		// Lock the mutex.
-		c.chainChanMutex.Lock()
-		defer c.chainChanMutex.Unlock()
-
-		// Be sure that the ID is unique.
-		for {
-			if _, ok := c.chanMap[id]; !ok {
-				break
-			}
-
-			id = randomString(chainIDLength)
+	// Create a new ID and ensure it is unqiue.
+	var added bool
+	for {
+		id, err = randomString(chainIDLength)
+		if err != nil {
+			return
 		}
 
-		// Add the channel to the map.
-		c.chanMap[id] = channel
-	}()
+		added = func() bool {
+			c.chainChanMutex.Lock()
+			defer c.chainChanMutex.Unlock()
 
-	return id, channel
+			if _, ok := c.chanMap[id]; ok {
+				return false
+			}
+
+			c.chanMap[id] = cc
+			return true
+		}()
+		if added {
+			break
+		}
+	}
+
+	return
 }
 
 // Returns nil if not found.
-func (c *chain) Get(id string) chainChan {
-	// Lock the mutex.
+func (c *chain) Get(id string) (cc chainChan) {
 	c.chainChanMutex.Lock()
-	defer c.chainChanMutex.Unlock()
-
-	// Obtain the channel.
-	return c.chanMap[id]
+	cc = c.chanMap[id]
+	c.chainChanMutex.Unlock()
+	return
 }
 
 func (c *chain) Delete(id string) {
-	// Lock the mutex.
 	c.chainChanMutex.Lock()
-	defer c.chainChanMutex.Unlock()
-
-	// Delete the channel from the map.
 	delete(c.chanMap, id)
+	c.chainChanMutex.Unlock()
 }
