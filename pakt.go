@@ -235,31 +235,22 @@ func (s *Socket) ClosedChan() ClosedChan {
 
 // Close the socket connection.
 // This method is thread-safe.
-func (s *Socket) Close() {
+func (s *Socket) Close() error {
+	// Check if already closed and close the close channel.
 	s.closeMutex.Lock()
-	defer s.closeMutex.Unlock()
-
-	// Check if already closed.
 	if s.IsClosed() {
-		return
+		s.closeMutex.Unlock()
+		return nil
 	}
-
-	// Close the close channel.
 	close(s.closeChan)
+	s.closeMutex.Unlock()
 
-	// Call this in a new goroutine to not block (mutex lock).
-	// Due to the nested write method call.
-	go func() {
-		// Tell the other peer, that the connection was closed.
-		// Ignore errors. The connection might be closed already.
-		_ = s.write(typeClose, nil, nil)
+	// Tell the other peer, that the connection was closed.
+	// Ignore errors. The connection might be closed already.
+	_ = s.write(typeClose, nil, nil)
 
-		// Close the socket connection.
-		err := s.conn.Close()
-		if err != nil {
-			Log.Warningf("socket: failed to close the socket: %v", err)
-		}
-	}()
+	// Close the socket connection.
+	return s.conn.Close()
 }
 
 // RegisterFunc registers a remote function.
