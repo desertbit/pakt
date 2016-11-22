@@ -256,12 +256,9 @@ func (s *Socket) Close() error {
 // RegisterFunc registers a remote function.
 // This method is thread-safe.
 func (s *Socket) RegisterFunc(id string, f Func) {
-	// Lock the mutex.
 	s.funcMapMutex.Lock()
-	defer s.funcMapMutex.Unlock()
-
-	// Set the function to the map.
 	s.funcMap[id] = f
+	s.funcMapMutex.Unlock()
 }
 
 // RegisterFuncs registers a map of remote functions.

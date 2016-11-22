@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestByteConversion(t *testing.T) {
+func TestUInt32Conversion(t *testing.T) {
 	numbers32 := []uint32{5251, uint32Max, 0, 1, 101, 2387, 219}
 
 	for _, i := range numbers32 {
@@ -37,6 +37,16 @@ func TestByteConversion(t *testing.T) {
 		require.True(t, ii == i)
 	}
 
+	ii, err := bytesToUint32(nil)
+	require.Equal(t, err, errInvalidByteLen)
+	require.True(t, ii == 0)
+
+	ii, err = bytesToUint32(make([]byte, 3))
+	require.Equal(t, err, errInvalidByteLen)
+	require.True(t, ii == 0)
+}
+
+func TestUInt16Conversion(t *testing.T) {
 	numbers16 := []uint16{5251, uint16Max, 0, 1, 101, 2387, 219}
 
 	for _, i := range numbers16 {
@@ -48,4 +58,12 @@ func TestByteConversion(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, ii == i)
 	}
+
+	ii, err := bytesToUint16(nil)
+	require.Equal(t, err, errInvalidByteLen)
+	require.True(t, ii == 0)
+
+	ii, err = bytesToUint16(make([]byte, 1))
+	require.Equal(t, err, errInvalidByteLen)
+	require.True(t, ii == 0)
 }

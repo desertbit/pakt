@@ -53,7 +53,7 @@ func TestServerClose(t *testing.T) {
 func TestServerSocketsMap(t *testing.T) {
 	var wg sync.WaitGroup
 
-	server, err := tcp.NewServer("127.0.0.1:45356")
+	server, err := tcp.NewServer("127.0.0.1:45310")
 	require.NoError(t, err)
 	require.NotNil(t, server)
 
@@ -87,7 +87,7 @@ func TestServerSocketsMap(t *testing.T) {
 		wg.Add(1)
 
 		go func() {
-			cl, err := tcp.NewClient("127.0.0.1:45356")
+			cl, err := tcp.NewClient("127.0.0.1:45310")
 			must(err == nil, "client")
 			must(cl != nil, "client")
 

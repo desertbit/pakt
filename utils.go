@@ -19,9 +19,9 @@
 package pakt
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 
 	"github.com/Sirupsen/logrus"
 )
@@ -36,6 +36,8 @@ var (
 	Log *logrus.Logger
 
 	endian binary.ByteOrder = binary.BigEndian
+
+	errInvalidByteLen = errors.New("invalid byte length")
 )
 
 func init() {
@@ -43,29 +45,31 @@ func init() {
 	Log = logrus.New()
 }
 
-func bytesToUint16(data []byte) (ret uint16, err error) {
-	buf := bytes.NewBuffer(data)
-	err = binary.Read(buf, endian, &ret)
+func bytesToUint16(data []byte) (v uint16, err error) {
+	if len(data) < 2 {
+		return 0, errInvalidByteLen
+	}
+	v = endian.Uint16(data)
 	return
 }
 
 func uint16ToBytes(v uint16) (data []byte, err error) {
-	buf := bytes.NewBuffer(data)
-	err = binary.Write(buf, endian, v)
-	data = buf.Bytes()
+	data = make([]byte, 2)
+	endian.PutUint16(data, v)
 	return
 }
 
-func bytesToUint32(data []byte) (ret uint32, err error) {
-	buf := bytes.NewBuffer(data)
-	err = binary.Read(buf, endian, &ret)
+func bytesToUint32(data []byte) (v uint32, err error) {
+	if len(data) < 4 {
+		return 0, errInvalidByteLen
+	}
+	v = endian.Uint32(data)
 	return
 }
 
 func uint32ToBytes(v uint32) (data []byte, err error) {
-	buf := bytes.NewBuffer(data)
-	err = binary.Write(buf, endian, v)
-	data = buf.Bytes()
+	data = make([]byte, 4)
+	endian.PutUint32(data, v)
 	return
 }
 
