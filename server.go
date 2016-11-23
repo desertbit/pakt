@@ -24,26 +24,12 @@ import (
 )
 
 const (
-	socketIDLength       = 20
-	newConnChanSize      = 10
-	defaultServerWorkers = 20
+	socketIDLength = 20
+	serverWorkers  = 5
+
+	newConnChanSize   = 10
+	newSocketChanSize = 10
 )
-
-//######################//
-//### Server Options ###//
-//######################//
-
-// ServerOptions defines server settings.
-type ServerOptions struct {
-	// Workers defines the amount of routines handling new connections.
-	Workers int
-}
-
-func (o *ServerOptions) SetDefaults() {
-	if o.Workers <= 0 {
-		o.Workers = defaultServerWorkers
-	}
-}
 
 //##############//
 //### Server ###//
@@ -56,32 +42,24 @@ type Server struct {
 	sockets      map[string]*Socket
 	socketsMutex sync.RWMutex
 
-	onNewSocket func(*Socket)
-	newConnChan chan net.Conn
+	newConnChan   chan net.Conn
+	newSocketChan chan *Socket
 
 	closeMutex sync.Mutex
 	closeChan  chan struct{}
 }
 
 // NewServer creates a new PAKT server.
-// One variadic argument defines optional server options.
-func NewServer(ln net.Listener, opts ...*ServerOptions) *Server {
-	var opt *ServerOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	} else {
-		opt = new(ServerOptions)
-	}
-	opt.SetDefaults()
-
+func NewServer(ln net.Listener) *Server {
 	s := &Server{
-		ln:          ln,
-		sockets:     make(map[string]*Socket),
-		newConnChan: make(chan net.Conn, newConnChanSize),
-		closeChan:   make(chan struct{}),
+		ln:            ln,
+		sockets:       make(map[string]*Socket),
+		newConnChan:   make(chan net.Conn, newConnChanSize),
+		newSocketChan: make(chan *Socket, newSocketChanSize),
+		closeChan:     make(chan struct{}),
 	}
 
-	for w := 0; w < opt.Workers; w++ {
+	for w := 0; w < serverWorkers; w++ {
 		go s.handleConnectionLoop()
 	}
 
@@ -164,11 +142,28 @@ func (s *Server) Close() {
 	}
 }
 
+// NewSocketChan returns the channel for new incoming sockets.
+// Either use NewSocketChan or OnNewSocket.
+func (s *Server) NewSocketChan() <-chan *Socket {
+	return s.newSocketChan
+}
+
 // OnNewSocket sets the function which is
 // triggered if a new socket connection was made.
-// Only set this during initialization.
+// Only set this during initialization and only set this once!
+// The callback function is called in a new goroutine.
+// Either use NewSocketChan or OnNewSocket.
 func (s *Server) OnNewSocket(f func(*Socket)) {
-	s.onNewSocket = f
+	go func() {
+		for {
+			select {
+			case <-s.closeChan:
+				return
+			case socket := <-s.newSocketChan:
+				go f(socket)
+			}
+		}
+	}()
 }
 
 // GetSocket obtains a socket by its ID.
@@ -269,8 +264,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 		s.socketsMutex.Unlock()
 	}()
 
-	// Call the function if defined.
-	if s.onNewSocket != nil {
-		s.onNewSocket(socket)
-	}
+	// Finally pass the new socket to the channel.
+	s.newSocketChan <- socket
 }
