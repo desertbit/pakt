@@ -122,9 +122,10 @@ type Socket struct {
 	closeMutex sync.Mutex
 	closeChan  chan struct{}
 
+	funcMapMutex sync.RWMutex
 	funcMap      map[string]Func
-	funcMapMutex sync.Mutex
-	funcChain    *chain
+
+	funcChain *chain
 
 	callHook  CallHook
 	errorHook ErrorHook
@@ -637,9 +638,9 @@ func (s *Socket) handleCallRequest(headerBuf, payloadBuf []byte) (err error) {
 	}
 
 	// Obtain the function defined by the ID.
-	s.funcMapMutex.Lock()
+	s.funcMapMutex.RLock()
 	f, ok := s.funcMap[header.FuncID]
-	s.funcMapMutex.Unlock()
+	s.funcMapMutex.RUnlock()
 	if !ok {
 		return fmt.Errorf("call request: requested function does not exists: id=%v", header.FuncID)
 	}

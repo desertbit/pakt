@@ -24,12 +24,30 @@ import (
 )
 
 const (
-	socketIDLength = 20
+	socketIDLength       = 20
+	newConnChanSize      = 10
+	defaultServerWorkers = 20
 )
 
-//###################//
-//### Server Type ###//
-//###################//
+//######################//
+//### Server Options ###//
+//######################//
+
+// ServerOptions defines server settings.
+type ServerOptions struct {
+	// Workers defines the amount of routines handling new connections.
+	Workers int
+}
+
+func (o *ServerOptions) SetDefaults() {
+	if o.Workers <= 0 {
+		o.Workers = defaultServerWorkers
+	}
+}
+
+//##############//
+//### Server ###//
+//###############//
 
 // Server defines the PAKT server implementation.
 type Server struct {
@@ -39,17 +57,32 @@ type Server struct {
 	socketsMutex sync.RWMutex
 
 	onNewSocket func(*Socket)
+	newConnChan chan net.Conn
 
 	closeMutex sync.Mutex
 	closeChan  chan struct{}
 }
 
 // NewServer creates a new PAKT server.
-func NewServer(ln net.Listener) *Server {
+// One variadic argument defines optional server options.
+func NewServer(ln net.Listener, opts ...*ServerOptions) *Server {
+	var opt *ServerOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	} else {
+		opt = new(ServerOptions)
+	}
+	opt.SetDefaults()
+
 	s := &Server{
-		ln:        ln,
-		sockets:   make(map[string]*Socket),
-		closeChan: make(chan struct{}),
+		ln:          ln,
+		sockets:     make(map[string]*Socket),
+		newConnChan: make(chan net.Conn, newConnChanSize),
+		closeChan:   make(chan struct{}),
+	}
+
+	for w := 0; w < opt.Workers; w++ {
+		s.handleConnectionLoop()
 	}
 
 	return s
@@ -66,10 +99,8 @@ func (s *Server) Listen() {
 		conn, err := s.ln.Accept()
 		if err != nil {
 			// Check if the listener was closed.
-			select {
-			case <-s.closeChan:
+			if s.IsClosed() {
 				return
-			default:
 			}
 
 			// Log.
@@ -79,8 +110,8 @@ func (s *Server) Listen() {
 			continue
 		}
 
-		// Handle the connection in a new goroutine.
-		go s.handleConnection(conn)
+		// Pass the new connection to the channel.
+		s.newConnChan <- conn
 	}
 }
 
@@ -171,6 +202,18 @@ func (s *Server) Sockets() []*Socket {
 //###############//
 //### Private ###//
 //###############//
+
+func (s *Server) handleConnectionLoop() {
+	for {
+		select {
+		case <-s.closeChan:
+			return
+
+		case conn := <-s.newConnChan:
+			s.handleConnection(conn)
+		}
+	}
+}
 
 func (s *Server) handleConnection(conn net.Conn) {
 	// Catch panics.
