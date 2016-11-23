@@ -36,7 +36,7 @@ type Server struct {
 	ln net.Listener
 
 	sockets      map[string]*Socket
-	socketsMutex sync.Mutex
+	socketsMutex sync.RWMutex
 
 	onNewSocket func(*Socket)
 
@@ -142,25 +142,18 @@ func (s *Server) OnNewSocket(f func(*Socket)) {
 
 // GetSocket obtains a socket by its ID.
 // Returns nil if not found.
-func (s *Server) GetSocket(id string) *Socket {
-	// Lock the mutex.
-	s.socketsMutex.Lock()
-	defer s.socketsMutex.Unlock()
-
-	// Obtain the socket.
-	socket, ok := s.sockets[id]
-	if !ok {
-		return nil
-	}
-
-	return socket
+func (s *Server) GetSocket(id string) (so *Socket) {
+	s.socketsMutex.RLock()
+	so = s.sockets[id]
+	s.socketsMutex.RUnlock()
+	return
 }
 
 // Sockets returns a list of all current connected sockets.
 func (s *Server) Sockets() []*Socket {
 	// Lock the mutex.
-	s.socketsMutex.Lock()
-	defer s.socketsMutex.Unlock()
+	s.socketsMutex.RLock()
+	defer s.socketsMutex.RUnlock()
 
 	// Create the slice.
 	list := make([]*Socket, len(s.sockets))
@@ -228,12 +221,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 		// Wait for the socket to close.
 		<-socket.closeChan
 
-		// Lock the mutex.
 		s.socketsMutex.Lock()
-		defer s.socketsMutex.Unlock()
-
-		// Remove the socket from the map.
 		delete(s.sockets, socket.id)
+		s.socketsMutex.Unlock()
 	}()
 
 	// Call the function if defined.
