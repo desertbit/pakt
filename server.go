@@ -82,7 +82,7 @@ func NewServer(ln net.Listener, opts ...*ServerOptions) *Server {
 	}
 
 	for w := 0; w < opt.Workers; w++ {
-		s.handleConnectionLoop()
+		go s.handleConnectionLoop()
 	}
 
 	return s
