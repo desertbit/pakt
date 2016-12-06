@@ -18,7 +18,7 @@
 
 package pakt
 
-import "time"
+import "github.com/desertbit/pakt/timer"
 
 //###############//
 //### Private ###//
@@ -31,7 +31,7 @@ func (s *Socket) resetTimeout() {
 
 func (s *Socket) timeoutLoop() {
 	// Create the timeout.
-	timeout := time.NewTimer(socketTimeout)
+	timeout := timer.NewTimer(socketTimeout)
 	defer timeout.Stop()
 
 	for {
@@ -57,7 +57,7 @@ func (s *Socket) timeoutLoop() {
 
 func (s *Socket) pingLoop() {
 	// Create the timer.
-	timer := time.NewTimer(pingInterval)
+	timer := timer.NewTimer(pingInterval)
 	defer timer.Stop()
 
 	for {
