@@ -31,7 +31,6 @@ import (
 
 	"github.com/desertbit/pakt/codec"
 	"github.com/desertbit/pakt/codec/msgpack"
-	"github.com/desertbit/pakt/timer"
 )
 
 //#################//
@@ -321,7 +320,7 @@ func (s *Socket) Call(id string, args ...interface{}) (*Context, error) {
 	}
 
 	// Create the timeout.
-	timeout := timer.NewTimer(timeoutDuration)
+	timeout := time.NewTimer(timeoutDuration)
 	defer timeout.Stop()
 
 	// Wait for a response.
@@ -721,7 +720,7 @@ func (s *Socket) handleCallReturnRequest(headerBuf, payloadBuf []byte) (err erro
 
 	default:
 		// Retry with a timeout.
-		timeout := timer.NewTimer(time.Second)
+		timeout := time.NewTimer(time.Second)
 		defer timeout.Stop()
 
 		select {
