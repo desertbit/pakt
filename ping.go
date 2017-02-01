@@ -42,11 +42,6 @@ func (s *Socket) timeoutLoop() {
 
 		case <-s.resetTimeoutChan:
 			// Reset the timeout.
-			// Resetting a timer must take care not to race with the send
-			// into t.C that happens when the current timer expires.
-			if !timeout.Stop() {
-				<-timeout.C
-			}
 			timeout.Reset(socketTimeout)
 
 		case <-timeout.C:
@@ -73,11 +68,6 @@ func (s *Socket) pingLoop() {
 
 		case <-s.resetPingTimeoutChan:
 			// Reset the timer.
-			// Resetting a timer must take care not to race with the send
-			// into t.C that happens when the current timer expires.
-			if !timer.Stop() {
-				<-timer.C
-			}
 			timer.Reset(pingInterval)
 
 		case <-timer.C:
