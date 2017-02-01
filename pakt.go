@@ -22,6 +22,7 @@
 package pakt
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -392,21 +393,42 @@ func (s *Socket) write(reqType byte, headerI interface{}, dataI interface{}) (er
 		return err
 	}
 
-	// Create the head of the message.
-	head := []byte{ProtocolVersion, reqType}
+	// TODO: Think about a buffer pool to release load on the GC.
+	// Fill our message buffer.
+	var buf bytes.Buffer
+	err = buf.WriteByte(ProtocolVersion)
+	if err != nil {
+		return err
+	}
 
-	// Calulcate the total bytes of this message.
-	totalLen := len(head) + len(headerLen) + len(payloadLen) + len(header) + len(payload)
+	err = buf.WriteByte(reqType)
+	if err != nil {
+		return err
+	}
 
-	// Ensure that all bytes were written to the connection.
-	// Otherwise immediately close the socket to prevent out-of-sync.
-	var bytesWritten int
-	defer func() {
-		if bytesWritten != totalLen {
-			err = fmt.Errorf("write: not all message bytes have been written: closing socket")
-			s.Close()
+	_, err = buf.Write(headerLen)
+	if err != nil {
+		return err
+	}
+
+	_, err = buf.Write(payloadLen)
+	if err != nil {
+		return err
+	}
+
+	if len(header) > 0 {
+		_, err = buf.Write(header)
+		if err != nil {
+			return err
 		}
-	}()
+	}
+
+	if len(payload) > 0 {
+		_, err = buf.Write(payload)
+		if err != nil {
+			return err
+		}
+	}
 
 	// Calculate the write deadline.
 	writeDeadline := time.Now().Add(writeTimeout)
@@ -418,38 +440,10 @@ func (s *Socket) write(reqType byte, headerI interface{}, dataI interface{}) (er
 	// Reset the read deadline.
 	s.conn.SetWriteDeadline(writeDeadline)
 
-	// Write to the socket.
-	bytesWritten, err = s.conn.Write(head)
+	// Write the message bytes to the peer.
+	_, err = s.conn.Write(buf.Bytes())
 	if err != nil {
 		return err
-	}
-
-	n, err := s.conn.Write(headerLen)
-	bytesWritten += n
-	if err != nil {
-		return err
-	}
-
-	n, err = s.conn.Write(payloadLen)
-	bytesWritten += n
-	if err != nil {
-		return err
-	}
-
-	if len(header) > 0 {
-		n, err = s.conn.Write(header)
-		bytesWritten += n
-		if err != nil {
-			return err
-		}
-	}
-
-	if len(payload) > 0 {
-		n, err = s.conn.Write(payload)
-		bytesWritten += n
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil
