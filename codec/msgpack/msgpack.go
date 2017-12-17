@@ -18,17 +18,33 @@
 
 package msgpack
 
-import msgpack "gopkg.in/vmihailenco/msgpack.v2"
+import (
+	"github.com/tinylib/msgp/msgp"
+	msgpack "gopkg.in/vmihailenco/msgpack.v2"
+)
 
 // Codec that encodes to and decodes from MSGPack.
 var Codec = msgpackCodec{}
 
 type msgpackCodec struct{}
 
+// Encode the value to a msgpack byte slice.
+// It uses the faster msgp.Marshaler if implemented.
 func (c msgpackCodec) Encode(v interface{}) ([]byte, error) {
+	if d, ok := v.(msgp.Marshaler); ok {
+		return d.MarshalMsg(nil)
+	}
+
 	return msgpack.Marshal(v)
 }
 
+// Decode the byte slice to a value.
+// It uses the faster msgp.Unmarshaler if implemented.
 func (c msgpackCodec) Decode(b []byte, v interface{}) error {
+	if d, ok := v.(msgp.Unmarshaler); ok {
+		_, err := d.UnmarshalMsg(b)
+		return err
+	}
+
 	return msgpack.Unmarshal(b, v)
 }
